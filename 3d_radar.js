@@ -1,8 +1,13 @@
-// ChaosTech NSD 3D Radar v5.3 - FIXED OrbitControls
+// ChaosTech NSD 3D Radar v6.0 - Manual Camera Control (No OrbitControls needed)
 let scene3d, camera3d, renderer3d, droneMeshes3d = [];
 let radarVisible = false;
-let controls3d;
 let is3DMode = false;
+
+// Manual camera control variables
+let cameraRotation = { x: 0.5, y: 0.5 };
+let cameraDistance = 250;
+let isDragging = false;
+let mouseStart = { x: 0, y: 0 };
 
 function toggleRadarView() {
   is3DMode = !is3DMode;
@@ -63,9 +68,8 @@ function init3DRadar() {
   // Camera
   const w = container.clientWidth;
   const h = container.clientHeight;
-  camera3d = new THREE.PerspectiveCamera(75, w / h, 0.1, 1000);
-  camera3d.position.set(120, 120, 150);
-  camera3d.lookAt(0, 0, 0);
+  camera3d = new THREE.PerspectiveCamera(75, w / h, 0.1, 2000);
+  updateCameraPosition();
 
   // Renderer
   renderer3d = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -74,32 +78,36 @@ function init3DRadar() {
   renderer3d.shadowMap.enabled = true;
   container.appendChild(renderer3d.domElement);
 
-  // OrbitControls - FIXED: Check for THREE.OrbitControls first
-  if (typeof THREE.OrbitControls === 'undefined') {
-    console.warn('OrbitControls not found. Using basic camera.');
-    controls3d = null;
-  } else {
-    controls3d = new THREE.OrbitControls(camera3d, renderer3d.domElement);
-    controls3d.enableDamping = true;
-    controls3d.dampingFactor = 0.05;
-    controls3d.autoRotate = false;
-    controls3d.maxDistance = 600;
-    controls3d.minDistance = 50;
-    controls3d.enablePan = true;
-    controls3d.enableZoom = true;
-    controls3d.autoRotateSpeed = 2;
-  }
-  
-    // ⭐ FIX: Add wheel event listener with preventDefault
-  if (renderer3d && renderer3d.domElement) {
-    renderer3d.domElement.addEventListener('wheel', (event) => {
-      event.preventDefault(); // ⭐ CRITICAL: Prevent page scroll
-    }, { passive: false }); // ⭐ CRITICAL: passive: false allows preventDefault
-  }
+  // ⭐ MANUAL CAMERA CONTROL (No OrbitControls needed)
+  renderer3d.domElement.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    mouseStart = { x: e.clientX, y: e.clientY };
+  });
 
-// ⭐ FIX ZOOM: Prevent browser scroll, allow OrbitControls zoom
-  renderer3d.domElement.addEventListener('wheel', (event) => {
-    event.preventDefault();
+  renderer3d.domElement.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    const dx = e.clientX - mouseStart.x;
+    const dy = e.clientY - mouseStart.y;
+    
+    cameraRotation.y += dx * 0.005;
+    cameraRotation.x -= dy * 0.005;
+    
+    // Clamp x rotation to prevent flipping
+    cameraRotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, cameraRotation.x));
+    
+    mouseStart = { x: e.clientX, y: e.clientY };
+    updateCameraPosition();
+  });
+
+  renderer3d.domElement.addEventListener('mouseup', () => {
+    isDragging = false;
+  });
+
+  renderer3d.domElement.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    cameraDistance += e.deltaY * 0.5;
+    cameraDistance = Math.max(50, Math.min(600, cameraDistance));
+    updateCameraPosition();
   }, { passive: false });
 
   // Lighting
@@ -136,35 +144,19 @@ function init3DRadar() {
     emissiveIntensity: 0.2
   });
 
-  // North wall
-  const northWall = new THREE.Mesh(
-    new THREE.BoxGeometry(200, 2, 0.5),
-    wallMaterial
-  );
+  const northWall = new THREE.Mesh(new THREE.BoxGeometry(200, 2, 0.5), wallMaterial);
   northWall.position.set(0, 1, -100);
   scene3d.add(northWall);
 
-  // South wall
-  const southWall = new THREE.Mesh(
-    new THREE.BoxGeometry(200, 2, 0.5),
-    wallMaterial
-  );
+  const southWall = new THREE.Mesh(new THREE.BoxGeometry(200, 2, 0.5), wallMaterial);
   southWall.position.set(0, 1, 100);
   scene3d.add(southWall);
 
-  // East wall
-  const eastWall = new THREE.Mesh(
-    new THREE.BoxGeometry(0.5, 2, 200),
-    wallMaterial
-  );
+  const eastWall = new THREE.Mesh(new THREE.BoxGeometry(0.5, 2, 200), wallMaterial);
   eastWall.position.set(100, 1, 0);
   scene3d.add(eastWall);
 
-  // West wall
-  const westWall = new THREE.Mesh(
-    new THREE.BoxGeometry(0.5, 2, 200),
-    wallMaterial
-  );
+  const westWall = new THREE.Mesh(new THREE.BoxGeometry(0.5, 2, 200), wallMaterial);
   westWall.position.set(-100, 1, 0);
   scene3d.add(westWall);
 
@@ -173,12 +165,6 @@ function init3DRadar() {
   function animate3D() {
     requestAnimationFrame(animate3D);
     if (!radarVisible) return;
-    
-    // ⭐ CRITICAL: Update controls EVERY FRAME
-    if (controls3d) {
-      controls3d.update();
-    }
-    
     update3Drones();
     renderer3d.render(scene3d, camera3d);
   }
@@ -193,6 +179,15 @@ function init3DRadar() {
     camera3d.updateProjectionMatrix();
     renderer3d.setSize(w, h);
   });
+}
+
+function updateCameraPosition() {
+  if (!camera3d) return;
+  const x = cameraDistance * Math.sin(cameraRotation.y) * Math.cos(cameraRotation.x);
+  const y = cameraDistance * Math.sin(cameraRotation.x) + 50;
+  const z = cameraDistance * Math.cos(cameraRotation.y) * Math.cos(cameraRotation.x);
+  camera3d.position.set(x, y, z);
+  camera3d.lookAt(0, 0, 0);
 }
 
 function update3Drones() {
@@ -211,48 +206,31 @@ function update3Drones() {
     infraMarkers.forEach(marker => {
       const x = (marker.x - 50) * 2;
       const z = (marker.y - 50) * 2;
-
       let geometry, material, mesh;
       let color = 0x00ff00;
 
       if (marker.type === 'critical') {
         color = 0xffff00;
         geometry = new THREE.BoxGeometry(8, 8, 8);
-        material = new THREE.MeshPhongMaterial({
-          color,
-          emissive: 0x884400,
-          emissiveIntensity: 0.3
-        });
+        material = new THREE.MeshPhongMaterial({ color, emissive: 0x884400, emissiveIntensity: 0.3 });
         mesh = new THREE.Mesh(geometry, material);
         mesh.position.set(x, 4, z);
       } else if (marker.type === 'mobile') {
         color = 0x00ffff;
         geometry = new THREE.ConeGeometry(5, 8, 4);
-        material = new THREE.MeshPhongMaterial({
-          color,
-          emissive: 0x004488,
-          emissiveIntensity: 0.3
-        });
+        material = new THREE.MeshPhongMaterial({ color, emissive: 0x004488, emissiveIntensity: 0.3 });
         mesh = new THREE.Mesh(geometry, material);
         mesh.position.set(x, 4, z);
       } else if (marker.type === 'land') {
         color = 0x00ff00;
         geometry = new THREE.BoxGeometry(6, 6, 6);
-        material = new THREE.MeshPhongMaterial({
-          color,
-          emissive: 0x003300,
-          emissiveIntensity: 0.3
-        });
+        material = new THREE.MeshPhongMaterial({ color, emissive: 0x003300, emissiveIntensity: 0.3 });
         mesh = new THREE.Mesh(geometry, material);
         mesh.position.set(x, 3, z);
       } else if (marker.type === 'sea') {
         color = 0x00aaff;
         geometry = new THREE.SphereGeometry(5, 16, 12);
-        material = new THREE.MeshPhongMaterial({
-          color,
-          emissive: 0x002244,
-          emissiveIntensity: 0.3
-        });
+        material = new THREE.MeshPhongMaterial({ color, emissive: 0x002244, emissiveIntensity: 0.3 });
         mesh = new THREE.Mesh(geometry, material);
         mesh.position.set(x, 5, z);
       }
@@ -263,7 +241,6 @@ function update3Drones() {
         scene3d.add(mesh);
         droneMeshes3d.push(mesh);
 
-        // Label above marker
         const canvas = document.createElement('canvas');
         const context = canvas.getContext('2d');
         canvas.width = 128;
@@ -296,25 +273,14 @@ function update3Drones() {
     const status = decideDroneStatus(drone);
 
     let color = 0x00ff00;
-    if (drone.side === 'ally') {
-      color = 0x00ccff;
-    } else if (drone.mode === 'jammed') {
-      color = 0x0088ff;
-    } else if (status.score >= 81) {
-      color = 0xff0000;
-    } else if (status.score >= 61) {
-      color = 0xff8800;
-    } else if (status.score >= 31) {
-      color = 0xffff00;
-    }
+    if (drone.side === 'ally') color = 0x00ccff;
+    else if (drone.mode === 'jammed') color = 0x0088ff;
+    else if (status.score >= 81) color = 0xff0000;
+    else if (status.score >= 61) color = 0xff8800;
+    else if (status.score >= 31) color = 0xffff00;
 
-    // Drone sphere
     const geometry = new THREE.SphereGeometry(3, 16, 12);
-    const material = new THREE.MeshPhongMaterial({
-      color,
-      emissive: color,
-      emissiveIntensity: 0.2
-    });
+    const material = new THREE.MeshPhongMaterial({ color, emissive: color, emissiveIntensity: 0.2 });
     const sphere = new THREE.Mesh(geometry, material);
     sphere.castShadow = true;
     sphere.receiveShadow = true;
@@ -324,17 +290,12 @@ function update3Drones() {
     const y = 5 + Math.abs(Math.sin(Date.now() * 0.001 + index) * 2);
     sphere.position.set(x, y, z);
 
-    // Heading indicator
     const velocityGeom = new THREE.BufferGeometry();
     const velocityMat = new THREE.LineBasicMaterial({ color });
     const headingRad = (drone.heading * Math.PI) / 180;
     const velocityPoints = [
       new THREE.Vector3(x, y, z),
-      new THREE.Vector3(
-        x + Math.cos(headingRad) * 15,
-        y,
-        z + Math.sin(headingRad) * 15
-      )
+      new THREE.Vector3(x + Math.cos(headingRad) * 15, y, z + Math.sin(headingRad) * 15)
     ];
     velocityGeom.setFromPoints(velocityPoints);
     const velocityLine = new THREE.Line(velocityGeom, velocityMat);
@@ -345,7 +306,6 @@ function update3Drones() {
   });
 }
 
-// Wire up button
 document.addEventListener('DOMContentLoaded', () => {
   const toggleBtn = document.getElementById('toggleView');
   if (toggleBtn) {
